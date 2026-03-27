@@ -2,7 +2,7 @@
 
 ## GitHub Backup Rule
 
-When the user says **「現在の進捗をCLAUDE.mdに更新して」**, follow these steps in order:
+When the user says **「現在の進捗をCLAUDE.mdに更新して」**, follow these steps **in order — no exceptions**:
 
 1. **Update CLAUDE.md** — reflect today's progress, what was implemented, and current state
 2. **Commit & Push to GitHub** — run the following:
@@ -12,6 +12,9 @@ When the user says **「現在の進捗をCLAUDE.mdに更新して」**, follow 
    git push
    ```
 3. **Run `/clear`** to reset the conversation context
+
+> ⚠️ **MUST always GitHub backup (commit & push) before running /clear.**
+> Never skip the push step. This rule applies every single time without exception.
 
 ### Commit Message Rules
 
@@ -28,7 +31,7 @@ When the user says **「現在の進捗をCLAUDE.mdに更新して」**, follow 
 
 ## Project Info
 
-- **Repository**: https://github.com/nishiyan24/0327game
+- **Repository**: https://github.com/nishiyan24/shiba-strike
 - **Branch**: main
 - **Local path**: `C:/Users/owner/Desktop/claude code/0327game`
 
@@ -41,3 +44,13 @@ When the user says **「現在の進捗をCLAUDE.mdに更新して」**, follow 
 - Created private GitHub repository `0327game`
 - Connected local repo to GitHub remote and pushed initial commit
 - Set up CLAUDE.md with backup rules
+- Built complete vertical-scrolling shooter "SHIBA STRIKE" (Phaser 3 + Vite + TypeScript)
+  - Space-suited Shiba Inu player with bone bullets, 3-WAY powerup, SUPER SHIBA MODE
+  - 3 enemy types: black cat, robot vacuum, thunder cloud
+  - Stage 1 Boss: 全自動シャンプーマシン
+  - Stage 2 Boss: 高性能掃除機マシーン（吸引ギミック）
+  - 3-stage background transitions, score multipliers, bomb cutscene
+  - Full visual overhaul: high-detail procedural graphics, VFX particles, glows
+  - 1UP life recovery item (Stage 2 & 3) with sparkle VFX
+  - ClearScene, GameOverScene, EndingScene implemented
+  - Migrated remote to `nishiyan24/shiba-strike` and pushed
