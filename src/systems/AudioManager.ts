@@ -83,6 +83,40 @@ export class AudioManager {
     this.beep(220, 0.2, 'sawtooth', 0.2);
   }
 
+  // 「ワフッ！」吠え声（ボム発動時）
+  playBark(): void {
+    if (!this.audioCtx || this.muted) return;
+    try {
+      // 2段階の吠え声：「ワ」→「フッ」
+      const sr = this.audioCtx.sampleRate;
+      for (let bark = 0; bark < 2; bark++) {
+        const startTime = this.audioCtx.currentTime + bark * 0.18;
+        const dur = bark === 0 ? 0.22 : 0.14;
+        const bufSize = Math.floor(sr * dur);
+        const buffer = this.audioCtx.createBuffer(1, bufSize, sr);
+        const data = buffer.getChannelData(0);
+
+        const baseFreq = bark === 0 ? 380 : 480;
+        for (let i = 0; i < bufSize; i++) {
+          const t = i / sr;
+          const envelope = Math.pow(1 - t / dur, 1.5) * Math.min(1, t * 40);
+          // ボーカル音（サイン波 + ノイズで「ワフ」っぽく）
+          const vocal = Math.sin(2 * Math.PI * baseFreq * t * (1 - t * 1.5));
+          const noise = (Math.random() * 2 - 1) * 0.15;
+          data[i] = (vocal * 0.7 + noise) * envelope;
+        }
+
+        const source = this.audioCtx.createBufferSource();
+        source.buffer = buffer;
+        const gain = this.audioCtx.createGain();
+        gain.gain.setValueAtTime(0.7, startTime);
+        source.connect(gain);
+        gain.connect(this.audioCtx.destination);
+        source.start(startTime);
+      }
+    } catch { /* ignore */ }
+  }
+
   playBossDamage(): void {
     this.beep(440, 0.08, 'sawtooth', 0.1);
   }
