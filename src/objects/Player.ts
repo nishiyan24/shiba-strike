@@ -636,6 +636,15 @@ export class Player extends Phaser.GameObjects.Container {
 
   // ── ダメージ ─────────────────────────────────────────
 
+  /** 1UPアイテム取得時にライフを1回復（最大値を超えない） */
+  addLife(): void {
+    if (this.lives < PLAYER_MAX_LIVES) {
+      this.lives++;
+    }
+    // 上限を超えている場合も上限でクランプ
+    this.lives = Math.min(this.lives, PLAYER_MAX_LIVES);
+  }
+
   takeDamage(): void {
     if (this.isInvincible) return;
     this.lives--;

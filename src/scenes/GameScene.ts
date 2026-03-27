@@ -30,6 +30,15 @@ interface BoneItem {
   rotAngle: number;
 }
 
+interface LifeItem {
+  gfx: Phaser.GameObjects.Graphics;
+  label: Phaser.GameObjects.Text;
+  x: number;
+  y: number;
+  speed: number;
+  bobTimer: number;
+}
+
 export class GameScene extends Phaser.Scene {
   public player!: Player;
   private hud!: HUD;
@@ -58,6 +67,9 @@ export class GameScene extends Phaser.Scene {
 
   // アイテム
   private boneItems: BoneItem[] = [];
+  private lifeItems: LifeItem[] = [];
+  private lifeItemSpawnedStage2: boolean = false;
+  private lifeItemSpawnedStage3: boolean = false;
 
   // ゲーム状態
   private elapsed: number = 0;
@@ -85,6 +97,9 @@ export class GameScene extends Phaser.Scene {
     this.bossSpawned = false;
     this.gameEnded = false;
     this.hitstopActive = false;
+    this.lifeItems = [];
+    this.lifeItemSpawnedStage2 = false;
+    this.lifeItemSpawnedStage3 = false;
     this.boss = null;
     this.currentBgStage = 0;
     this.superModeActive = false;
@@ -169,6 +184,8 @@ export class GameScene extends Phaser.Scene {
     this.player.update(delta);
     this.updatePlayerBullets(delta);
     this.updateBoneItems(delta);
+    this.updateLifeItems(delta);
+    this.checkLifeItemSpawn();
 
     // プレイヤー強化状態に応じてスポーン・ボス倍率を更新
     const powerMult = this.superModeActive ? 2.0 : this.player.powerLevel >= 1 ? 1.5 : 1.0;
@@ -611,6 +628,290 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => dot.destroy(),
       });
     }
+  }
+
+  // ─────────────────────────────────────────────────
+  //  1UP ライフアイテム
+  // ─────────────────────────────────────────────────
+
+  /** ステージ・elapsed に応じて1UPを自動スポーン */
+  private checkLifeItemSpawn(): void {
+    if (this.bossSpawned || this.gameEnded) return;
+
+    // Stage 2 : おやつ銀河の終わり際（elapsed 36000ms）
+    if (this.stageNumber === 2 && !this.lifeItemSpawnedStage2 && this.elapsed >= 36000) {
+      this.lifeItemSpawnedStage2 = true;
+      // 少し間をおいてから落としてくる（唐突感を和らげる）
+      this.time.delayedCall(600, () => this.spawnLifeItem());
+    }
+
+    // Stage 3 : 道中中盤（elapsed 30000ms）に1UP
+    if (this.stageNumber === 3 && !this.lifeItemSpawnedStage3 && this.elapsed >= 30000) {
+      this.lifeItemSpawnedStage3 = true;
+      this.time.delayedCall(600, () => this.spawnLifeItem());
+    }
+  }
+
+  /** 1UPアイテムをランダムX座標からスポーン */
+  private spawnLifeItem(): void {
+    if (this.gameEnded) return;
+
+    const spawnX = Phaser.Math.Between(60, GAME_WIDTH - 60);
+    const spawnY = -50;
+
+    // ── アイコン本体（柴犬顔）──────────────────────
+    const g = this.add.graphics().setDepth(24);
+    this.drawLifeItemIcon(g);
+    g.setPosition(spawnX, spawnY);
+
+    // ── 緑グロウリング（外枠）──────────────────────
+    const glow = this.add.graphics().setDepth(23);
+    glow.fillStyle(0x00ff88, 0.12);
+    glow.fillCircle(0, 0, 32);
+    glow.fillStyle(0x00ff88, 0.08);
+    glow.fillCircle(0, 0, 42);
+    glow.lineStyle(2.5, 0x00ff88, 0.75);
+    glow.strokeCircle(0, 0, 26);
+    glow.lineStyle(1, 0xaaffcc, 0.4);
+    glow.strokeCircle(0, 0, 30);
+    glow.setPosition(spawnX, spawnY);
+
+    // ── "1UP" ラベル ────────────────────────────────
+    const label = this.add.text(spawnX, spawnY - 36, '1UP', {
+      fontSize: '15px',
+      fontFamily: '"Arial Black", Impact, sans-serif',
+      color: '#00ff88',
+      stroke: '#003322',
+      strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(25);
+
+    // ── 脈動アニメーション ──────────────────────────
+    this.tweens.add({
+      targets: [g, glow],
+      scaleX: 1.15, scaleY: 1.15,
+      duration: 400,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.InOut',
+    });
+
+    // ── スポーン出現サークル ─────────────────────────
+    const ring = this.add.graphics().setDepth(26);
+    ring.lineStyle(3, 0x00ffaa, 0.9);
+    ring.strokeCircle(spawnX, spawnY, 8);
+    this.tweens.add({
+      targets: ring,
+      scaleX: 4, scaleY: 4,
+      alpha: 0,
+      duration: 500,
+      ease: 'Quad.Out',
+      onComplete: () => ring.destroy(),
+    });
+
+    this.lifeItems.push({
+      gfx: g,
+      label,
+      x: spawnX,
+      y: spawnY,
+      speed: 68,
+      bobTimer: 0,
+    });
+
+    // glowは別途ライフアイテムと同期させるため、gfxに紐付けする
+    (g as any)._glow = glow;
+  }
+
+  /** 柴犬ライフアイコン（HUDと同一デザイン、ゲームフィールドサイズ版）*/
+  private drawLifeItemIcon(g: Phaser.GameObjects.Graphics): void {
+    // ソフトグロウ背景
+    g.fillStyle(0xff8800, 0.1);
+    g.fillCircle(0, 0, 22);
+
+    // 頭（柴犬オレンジ）
+    g.fillStyle(0xdd7700);
+    g.fillCircle(0, 0, 16);
+
+    // マズル
+    g.fillStyle(0xffcc88);
+    g.fillEllipse(0, 5, 19, 13);
+
+    // 目（黒）
+    g.fillStyle(0x111111);
+    g.fillCircle(-4.5, -3, 3.5);
+    g.fillCircle(4.5, -3, 3.5);
+    // 目の白ハイライト
+    g.fillStyle(0xffffff, 0.9);
+    g.fillCircle(-3.2, -4.5, 1.5);
+    g.fillCircle(5.8, -4.5, 1.5);
+
+    // 鼻
+    g.fillStyle(0x221100);
+    g.fillEllipse(0, 2, 6, 4.5);
+    // 鼻ハイライト
+    g.fillStyle(0x554422, 0.5);
+    g.fillCircle(-0.5, 1.5, 1.2);
+
+    // 口
+    g.lineStyle(1.2, 0x553300, 0.8);
+    g.beginPath();
+    g.arc(0, 5, 4.5, 0.3, Math.PI - 0.3, false);
+    g.strokePath();
+
+    // ほほ
+    g.fillStyle(0xff9988, 0.3);
+    g.fillCircle(-11, 2, 7);
+    g.fillCircle(11, 2, 7);
+
+    // 耳（三角）
+    g.fillStyle(0xcc6600);
+    g.fillTriangle(-18, -10, -9, -12, -14, -24);
+    g.fillTriangle(18, -10, 9, -12, 14, -24);
+    // 耳内ピンク
+    g.fillStyle(0xff9999, 0.7);
+    g.fillTriangle(-16, -10, -10, -11, -14, -20);
+    g.fillTriangle(16, -10, 10, -11, 14, -20);
+
+    // 外枠リング（ヘルメット風）
+    g.lineStyle(2, 0xeeeeff, 0.4);
+    g.strokeCircle(0, 0, 16);
+  }
+
+  /** ライフアイテムの移動・接触判定・削除 */
+  private updateLifeItems(delta: number): void {
+    for (let i = this.lifeItems.length - 1; i >= 0; i--) {
+      const item = this.lifeItems[i];
+
+      // 落下
+      item.y += item.speed * (delta / 1000);
+      // 横ゆらゆら（サインカーブ）
+      item.bobTimer += delta;
+      const wobble = Math.sin(item.bobTimer / 500) * 18;
+
+      item.gfx.setPosition(item.x + wobble, item.y);
+      (item.gfx as any)._glow?.setPosition(item.x + wobble, item.y);
+      item.label.setPosition(item.x + wobble, item.y - 36);
+
+      // 画面外 → 削除
+      if (item.y > GAME_HEIGHT + 60) {
+        item.gfx.destroy();
+        (item.gfx as any)._glow?.destroy();
+        item.label.destroy();
+        this.lifeItems.splice(i, 1);
+        continue;
+      }
+
+      // プレイヤーとの接触判定
+      const dx = (item.x + wobble) - this.player.x;
+      const dy = item.y - this.player.y;
+      if (Math.sqrt(dx * dx + dy * dy) < 34) {
+        const px = item.x + wobble;
+        const py = item.y;
+        item.gfx.destroy();
+        (item.gfx as any)._glow?.destroy();
+        item.label.destroy();
+        this.lifeItems.splice(i, 1);
+        this.onPickupLife(px, py);
+      }
+    }
+  }
+
+  /** 1UP取得処理 & キラキラVFX */
+  private onPickupLife(x: number, y: number): void {
+    const wasAtMax = this.player.lives >= 3; // PLAYER_MAX_LIVES
+    this.player.addLife();
+    this.hud.updateLives(this.player.lives);
+
+    // ── 1. 効果音（明るいファンファーレ）──────────────
+    try {
+      const ctx = new AudioContext();
+      const notes = wasAtMax
+        ? [784, 1047]          // 上限時: 短い2音
+        : [523, 659, 784, 1047]; // 通常: 4音昇り
+      notes.forEach((freq, i) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.09);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime + i * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.09 + 0.15);
+        osc.start(ctx.currentTime + i * 0.09);
+        osc.stop(ctx.currentTime + i * 0.09 + 0.18);
+      });
+    } catch { /* ignore */ }
+
+    // ── 2. 衝撃波グリーンリング ───────────────────────
+    for (let r = 0; r < 2; r++) {
+      const ring = this.add.graphics().setDepth(66);
+      ring.lineStyle(3 - r, 0x00ff88, 0.85 - r * 0.25);
+      ring.strokeCircle(x, y, 10 + r * 6);
+      this.tweens.add({
+        targets: ring,
+        scaleX: 5 + r * 2, scaleY: 5 + r * 2,
+        alpha: 0,
+        duration: 400 + r * 80,
+        delay: r * 60,
+        ease: 'Quad.Out',
+        onComplete: () => ring.destroy(),
+      });
+    }
+
+    // ── 3. 星形スパーク（12方向）─────────────────────
+    const sparkColors = [0x00ff88, 0x88ffcc, 0xffffff, 0x00ffaa, 0xaaffdd];
+    for (let i = 0; i < 14; i++) {
+      const angle  = (Math.PI * 2 * i) / 14;
+      const speed  = Phaser.Math.Between(40, 90);
+      const color  = sparkColors[i % sparkColors.length];
+      const isLong = i % 2 === 0;
+
+      const spark = this.add.graphics().setDepth(65);
+      spark.fillStyle(color, 1.0);
+      if (isLong) {
+        // 細長い星芒
+        spark.fillTriangle(-2, -8, 0, 0, 2, -8);
+        spark.fillCircle(0, 0, 2.5);
+      } else {
+        // 丸いスパーク
+        spark.fillCircle(0, 0, 3.5);
+        spark.fillStyle(0xffffff, 0.6);
+        spark.fillCircle(-0.5, -0.5, 1.5);
+      }
+      spark.x = x; spark.y = y;
+      this.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed,
+        alpha: 0,
+        scaleX: 0.2, scaleY: 0.2,
+        rotation: angle + Math.PI,
+        duration: Phaser.Math.Between(320, 560),
+        ease: 'Quad.Out',
+        onComplete: () => spark.destroy(),
+      });
+    }
+
+    // ── 4. コアフラッシュ（緑白）────────────────────
+    const flash = this.add.graphics().setDepth(67);
+    flash.fillStyle(0xffffff, 0.85);
+    flash.fillCircle(x, y, 22);
+    flash.fillStyle(0x00ff88, 0.5);
+    flash.fillCircle(x, y, 16);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scaleX: 2.4, scaleY: 2.4,
+      duration: 220,
+      ease: 'Quad.Out',
+      onComplete: () => flash.destroy(),
+    });
+
+    // ── 5. 浮遊テキスト ──────────────────────────────
+    const msg  = wasAtMax ? '💚 LIFE MAX!' : '💚 +1 LIFE!';
+    const col  = wasAtMax ? 0xffdd00 : 0x00ff88;
+    this.showFloatingText(x, y - 10, msg, col);
+
+    // ── 6. HUD ライフ点滅（取得感強調）───────────────
+    this.cameras.main.flash(120, 0, 255, 100);
   }
 
   // 画面上に浮かぶフィードバックテキスト
