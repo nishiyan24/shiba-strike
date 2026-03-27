@@ -5,6 +5,7 @@ import { TitleScene } from './scenes/TitleScene';
 import { GameScene } from './scenes/GameScene';
 import { GameOverScene } from './scenes/GameOverScene';
 import { ClearScene } from './scenes/ClearScene';
+import { EndingScene } from './scenes/EndingScene';
 
 // ゲームの設定
 const config: Phaser.Types.Core.GameConfig = {
@@ -12,7 +13,7 @@ const config: Phaser.Types.Core.GameConfig = {
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   backgroundColor: '#000011',
-  scene: [BootScene, TitleScene, GameScene, GameOverScene, ClearScene],
+  scene: [BootScene, TitleScene, GameScene, GameOverScene, ClearScene, EndingScene],
   parent: document.body,
   physics: {
     default: 'arcade',

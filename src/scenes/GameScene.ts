@@ -1,16 +1,22 @@
 import Phaser from 'phaser';
 import { Player } from '../objects/Player';
 import { Boss } from '../objects/Boss';
+import { BossVacuum } from '../objects/BossVacuum';
+import { BossThunder } from '../objects/BossThunder';
 import { HUD } from '../ui/HUD';
 import { BossHealthBar } from '../ui/BossHealthBar';
 import { EnemySpawner } from '../systems/EnemySpawner';
 import { AudioManager } from '../systems/AudioManager';
 import {
   GAME_WIDTH, GAME_HEIGHT,
-  BOSS_APPEAR_TIME, BOSS_SCORE,
+  BOSS_APPEAR_TIME, BOSS_SCORE, BOSS_VACUUM_HP, BOSS_THUNDER_HP,
   SCORE_MULT_STAGE0, SCORE_MULT_STAGE1, SCORE_MULT_STAGE2,
   DROP_RATE_STAGE0, DROP_RATE_STAGE1, DROP_RATE_STAGE2,
+  STAGE_ENEMY_SPEED_MULT, STAGE_ENEMY_BULLET_MULT,
 } from '../config';
+
+// ボスのユニオン型
+type AnyBoss = Boss | BossVacuum | BossThunder;
 
 // 背景ステージ
 type BgStage = 0 | 1 | 2;
@@ -29,8 +35,14 @@ export class GameScene extends Phaser.Scene {
   private hud!: HUD;
   private bossHpBar!: BossHealthBar;
   private spawner!: EnemySpawner;
-  private boss: Boss | null = null;
+  private boss: AnyBoss | null = null;
   private audio!: AudioManager;
+
+  // 全3ステージ管理
+  private stageNumber: number = 1;   // 1, 2, 3
+  private carryScore: number = 0;    // ステージ間引き継ぎスコア
+  private carryLives: number = 3;
+  private carryBombs: number = 3;
 
   // 背景レイヤー
   private bgRect!: Phaser.GameObjects.Rectangle;
@@ -61,6 +73,13 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
+  init(data: { stageNumber?: number; score?: number; lives?: number; bombs?: number }): void {
+    this.stageNumber = data.stageNumber ?? 1;
+    this.carryScore  = data.score  ?? 0;
+    this.carryLives  = data.lives  ?? 3;
+    this.carryBombs  = data.bombs  ?? 3;
+  }
+
   create(): void {
     this.elapsed = 0;
     this.bossSpawned = false;
@@ -79,12 +98,27 @@ export class GameScene extends Phaser.Scene {
     this.createStarfield();
 
     this.player = new Player(this, GAME_WIDTH / 2, GAME_HEIGHT - 100);
+    // ステージ間引き継ぎ
+    this.player.score = this.carryScore;
+    this.player.lives = this.carryLives;
+    this.player.bombs = this.carryBombs;
+
     this.spawner = new EnemySpawner(this);
+    // ステージ別敵速度倍率を設定
+    const si = this.stageNumber - 1;
+    this.spawner.setStageMultipliers(
+      STAGE_ENEMY_SPEED_MULT[si] ?? 1.0,
+      STAGE_ENEMY_BULLET_MULT[si] ?? 1.0
+    );
     this.audio = new AudioManager(this);
 
     this.hud = new HUD(this);
     this.bossHpBar = new BossHealthBar(this);
     this.bossHpBar.hide();
+    // ステージ引き継ぎ値でHUDを初期同期
+    this.hud.updateLives(this.player.lives);
+    this.hud.updateBombs(this.player.bombs);
+    this.hud.updateScore(this.player.score);
 
     this.player.onShoot  = () => this.audio.playShoot();
     this.player.onBomb   = () => this.showShibaBombCutscene();
@@ -95,17 +129,29 @@ export class GameScene extends Phaser.Scene {
       if (this.player.lives <= 0) this.triggerGameOver();
     };
 
+    const bossWarningMessages = [
+      '⚠ 全自動シャンプーマシン 接近中 ⚠',
+      '⚠ 高性能掃除機マシーン 起動 ⚠',
+      '⚠ 超雷神 降臨 ⚠',
+    ];
+    const bossWarningColors = ['#ff4488', '#ff8800', '#ffee00'];
+    const bossWarningMsg = bossWarningMessages[this.stageNumber - 1] ?? bossWarningMessages[0];
+    const bossWarningColor = bossWarningColors[this.stageNumber - 1] ?? bossWarningColors[0];
+
     this.bossWarningText = this.add.text(
       GAME_WIDTH / 2, GAME_HEIGHT / 2,
-      '⚠ 全自動シャンプーマシン 接近中 ⚠',
+      bossWarningMsg,
       {
-        fontSize: '24px',
+        fontSize: '22px',
         fontFamily: 'Arial Black, sans-serif',
-        color: '#ff4488',
+        color: bossWarningColor,
         stroke: '#440000',
         strokeThickness: 4,
       }
     ).setOrigin(0.5).setAlpha(0).setDepth(95);
+
+    // ステージ番号バナー表示
+    this.time.delayedCall(100, () => this.showStageBanner());
 
     this.audio.resume();
     this.audio.startBGM();
@@ -123,6 +169,33 @@ export class GameScene extends Phaser.Scene {
     this.player.update(delta);
     this.updatePlayerBullets(delta);
     this.updateBoneItems(delta);
+
+    // プレイヤー強化状態に応じてスポーン・ボス倍率を更新
+    const powerMult = this.superModeActive ? 2.0 : this.player.powerLevel >= 1 ? 1.5 : 1.0;
+    this.spawner.spawnRateMultiplier = powerMult;
+    if (this.boss) this.boss.playerPowerMult = powerMult;
+
+    // Stage 2: 吸引ギミック — プレイヤーをボスへ引き寄せる
+    if (this.boss instanceof BossVacuum && this.boss.isSucking && !this.player.isInvincible) {
+      const strength = this.boss.suctionStrength;
+      const dx = this.boss.x - this.player.x;
+      const dy = this.boss.y - this.player.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      // 近いほど強くなる吸引力
+      const force = strength * (1 - Math.min(dist, 400) / 400) + strength * 0.3;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      this.player.x += nx * force * (delta / 1000);
+      this.player.y += ny * force * (delta / 1000);
+      // 下キー押しっぱなしで一部抵抗
+      const cursors = this.player.getCursors?.();
+      if (cursors?.down?.isDown) {
+        this.player.y += force * 0.55 * (delta / 1000);
+      }
+      // 画面内クランプ
+      this.player.x = Phaser.Math.Clamp(this.player.x, 24, GAME_WIDTH - 24);
+      this.player.y = Phaser.Math.Clamp(this.player.y, 24, GAME_HEIGHT - 24);
+    }
 
     if (!this.bossSpawned) {
       this.spawner.update(delta);
@@ -361,6 +434,45 @@ export class GameScene extends Phaser.Scene {
           onComplete: () => ring.destroy(),
         });
       }
+    });
+  }
+
+  // ステージ開始バナー表示
+  private showStageBanner(): void {
+    const labels = ['', 'STAGE 1', 'STAGE 2', 'STAGE 3 — FINAL'];
+    const colors = ['', '#00ccff', '#ff8800', '#ff2244'];
+    const subs = ['', 'シャンプーマシンを倒せ！', '掃除機マシーンが迫る！', '超雷神 — 最後の戦い！'];
+    const label = labels[this.stageNumber] ?? `STAGE ${this.stageNumber}`;
+    const color = colors[this.stageNumber] ?? '#ffffff';
+    const sub = subs[this.stageNumber] ?? '';
+
+    const cx = GAME_WIDTH / 2;
+    const t = this.add.text(cx, GAME_HEIGHT / 2 - 30, label, {
+      fontSize: '48px',
+      fontFamily: 'Arial Black, sans-serif',
+      color,
+      stroke: '#000000',
+      strokeThickness: 7,
+    }).setOrigin(0.5).setAlpha(0).setDepth(96).setScale(0.4);
+
+    const s = this.add.text(cx, GAME_HEIGHT / 2 + 30, sub, {
+      fontSize: '18px',
+      fontFamily: 'Arial Black, sans-serif',
+      color: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 4,
+    }).setOrigin(0.5).setAlpha(0).setDepth(96);
+
+    this.tweens.add({
+      targets: t,
+      scaleX: 1, scaleY: 1, alpha: 1,
+      duration: 500, ease: 'Back.Out',
+    });
+    this.tweens.add({ targets: s, alpha: 1, duration: 400, delay: 200 });
+
+    this.time.delayedCall(2200, () => {
+      this.tweens.add({ targets: [t, s], alpha: 0, y: '-=30', duration: 500,
+        onComplete: () => { t.destroy(); s.destroy(); } });
     });
   }
 
@@ -714,6 +826,18 @@ export class GameScene extends Phaser.Scene {
       if (b.y > GAME_HEIGHT + 30 || b.x < -30 || b.x > GAME_WIDTH + 30 || b.y < -30) {
         b.destroy(); this.boss.bullets.remove(b, true, true); continue;
       }
+      // 柱弾（雷神の落雷）の当たり判定
+      if (b.isPillar) {
+        const inX = Math.abs(b.x - this.player.x) < 18;
+        const inY = this.player.y >= b.y && this.player.y <= b.y + GAME_HEIGHT;
+        if (inX && inY) {
+          b.destroy(); this.boss.bullets.remove(b, true, true);
+          this.player.takeDamage();
+          this.cameras.main.flash(120, 255, 255, 100);
+        }
+        continue;
+      }
+
       const dx = b.x - this.player.x;
       const dy = b.y - this.player.y;
       if (Math.sqrt(dx * dx + dy * dy) < 14) {
@@ -726,42 +850,176 @@ export class GameScene extends Phaser.Scene {
   // ─── エフェクト ────────────────────────────────────
 
   private createExplosion(x: number, y: number, size: 'small' | 'medium' | 'large'): void {
-    const count = size === 'small' ? 7 : size === 'medium' ? 16 : 34;
-    const maxR  = size === 'small' ? 45 : size === 'medium' ? 90 : 180;
-    const colors = this.superModeActive
-      ? [0xffd700, 0xffcc00, 0xff8800, 0xffffff, 0xffee44] // スーパーモード時はゴールド
-      : [0xff8800, 0xffcc00, 0xff4400, 0xffffff, 0xff6600];
+    const isSuper = this.superModeActive;
 
-    for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count + Phaser.Math.FloatBetween(-0.4, 0.4);
-      const speed = Phaser.Math.Between(35, maxR);
-      const color = colors[Math.floor(Math.random() * colors.length)];
-      const dot = this.add.graphics();
-      dot.fillStyle(color, 1);
-      dot.fillCircle(0, 0, Phaser.Math.Between(2, 5));
-      dot.x = x; dot.y = y;
-      dot.setDepth(50);
+    // ── サイズ設定 ─────────────────────────────────
+    const cfg = {
+      small:  { sparks: 10, debris: 5,  embers: 4,  maxR: 55,  smoke: 2 },
+      medium: { sparks: 18, debris: 10, embers: 8,  maxR: 100, smoke: 4 },
+      large:  { sparks: 32, debris: 18, embers: 14, maxR: 200, smoke: 7 },
+    }[size];
+
+    const coreColors = isSuper
+      ? [0xffd700, 0xffcc00, 0xffee44, 0xffffff, 0xff9900]
+      : [0xff8800, 0xff5500, 0xffcc00, 0xff3300, 0xffffff];
+    const emberColors = isSuper
+      ? [0xffdd00, 0xff8800, 0xffffff]
+      : [0xff4400, 0xff8800, 0xffcc00];
+
+    const depth = 50;
+
+    // ─── 1. 衝撃波リング（外側へ拡張して消える）──────
+    const ringCount = size === 'small' ? 1 : size === 'medium' ? 2 : 3;
+    for (let r = 0; r < ringCount; r++) {
+      const ring = this.add.graphics();
+      const startR = 8 + r * 10;
+      const endR   = (size === 'small' ? 50 : size === 'medium' ? 90 : 160) + r * 20;
+      const ringCol = isSuper ? 0xffdd44 : 0xff6600;
+      ring.lineStyle(3 - r * 0.5, ringCol, 0.85 - r * 0.2);
+      ring.strokeCircle(x, y, startR);
+      ring.setDepth(depth + 3);
       this.tweens.add({
-        targets: dot,
-        x: x + Math.cos(angle) * speed,
-        y: y + Math.sin(angle) * speed,
-        alpha: 0, scaleX: 0.1, scaleY: 0.1,
-        duration: Phaser.Math.Between(280, 620),
-        onComplete: () => dot.destroy(),
+        targets: ring,
+        scaleX: endR / startR,
+        scaleY: endR / startR,
+        alpha: 0,
+        duration: 220 + r * 60,
+        delay: r * 35,
+        ease: 'Quad.Out',
+        onComplete: () => ring.destroy(),
       });
     }
 
+    // ─── 2. コアフラッシュ（白熱光）──────────────────
+    const flashR = size === 'small' ? 20 : size === 'medium' ? 42 : 85;
     const flash = this.add.graphics();
-    const fs = size === 'small' ? 18 : size === 'medium' ? 38 : 75;
-    flash.fillStyle(0xffffff, 0.9);
-    flash.fillCircle(x, y, fs);
-    flash.setDepth(51);
+    flash.fillStyle(0xffffff, 1.0);
+    flash.fillCircle(x, y, flashR);
+    flash.setDepth(depth + 4);
     this.tweens.add({
       targets: flash,
-      alpha: 0, scaleX: 2.2, scaleY: 2.2,
-      duration: 200,
+      alpha: 0,
+      scaleX: 2.5, scaleY: 2.5,
+      duration: 180,
+      ease: 'Quad.Out',
       onComplete: () => flash.destroy(),
     });
+
+    // ─── 3. コアグロウ（フラッシュの後に残る橙の球）──
+    const glow = this.add.graphics();
+    const glowR = size === 'small' ? 14 : size === 'medium' ? 28 : 55;
+    const glowCol = isSuper ? 0xffcc00 : 0xff6600;
+    glow.fillStyle(glowCol, 0.65);
+    glow.fillCircle(x, y, glowR);
+    glow.fillStyle(glowCol, 0.25);
+    glow.fillCircle(x, y, glowR * 1.7);
+    glow.setDepth(depth + 2);
+    this.tweens.add({
+      targets: glow,
+      alpha: 0,
+      scaleX: 1.8, scaleY: 1.8,
+      duration: 350,
+      delay: 50,
+      ease: 'Quad.Out',
+      onComplete: () => glow.destroy(),
+    });
+
+    // ─── 4. スパーク（速い小粒子）────────────────────
+    for (let i = 0; i < cfg.sparks; i++) {
+      const angle = (Math.PI * 2 * i) / cfg.sparks + Phaser.Math.FloatBetween(-0.3, 0.3);
+      const speed = Phaser.Math.Between(50, cfg.maxR);
+      const color = coreColors[i % coreColors.length];
+      const r     = Phaser.Math.Between(2, size === 'large' ? 5 : 4);
+      const spark = this.add.graphics();
+      spark.fillStyle(color, 1.0);
+      spark.fillCircle(0, 0, r);
+      // 先端グロウ
+      spark.fillStyle(0xffffff, 0.5);
+      spark.fillCircle(0, 0, Math.max(1, r - 1));
+      spark.x = x; spark.y = y;
+      spark.setDepth(depth + 1);
+      this.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed,
+        alpha: 0,
+        scaleX: 0.2, scaleY: 0.2,
+        duration: Phaser.Math.Between(250, 500),
+        ease: 'Quad.Out',
+        onComplete: () => spark.destroy(),
+      });
+    }
+
+    // ─── 5. デブリ（遅い大きめの欠片）────────────────
+    for (let i = 0; i < cfg.debris; i++) {
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const speed = Phaser.Math.Between(20, cfg.maxR * 0.55);
+      const color = coreColors[Math.floor(Math.random() * coreColors.length)];
+      const w = Phaser.Math.Between(3, 7);
+      const h = Phaser.Math.Between(3, 7);
+      const deb = this.add.graphics();
+      deb.fillStyle(color, 0.9);
+      deb.fillRect(-w / 2, -h / 2, w, h);
+      deb.x = x; deb.y = y;
+      deb.setDepth(depth);
+      this.tweens.add({
+        targets: deb,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed,
+        alpha: 0,
+        rotation: Phaser.Math.FloatBetween(-Math.PI * 2, Math.PI * 2),
+        duration: Phaser.Math.Between(350, 700),
+        ease: 'Sine.Out',
+        onComplete: () => deb.destroy(),
+      });
+    }
+
+    // ─── 6. エンバー（長く輝く余燼）──────────────────
+    for (let i = 0; i < cfg.embers; i++) {
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const speed = Phaser.Math.Between(15, cfg.maxR * 0.4);
+      const color = emberColors[i % emberColors.length];
+      const ember = this.add.graphics();
+      ember.fillStyle(color, 1.0);
+      ember.fillCircle(0, 0, Phaser.Math.Between(1, 3));
+      ember.x = x; ember.y = y;
+      ember.setDepth(depth - 1);
+      const dur = Phaser.Math.Between(500, 900);
+      this.tweens.add({
+        targets: ember,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed + 20,
+        alpha: 0,
+        scaleX: 0.4, scaleY: 0.4,
+        duration: dur,
+        delay: Phaser.Math.Between(80, 200),
+        ease: 'Sine.In',
+        onComplete: () => ember.destroy(),
+      });
+    }
+
+    // ─── 7. スモークパフ（大爆発のみ）────────────────
+    for (let i = 0; i < cfg.smoke; i++) {
+      const dx = Phaser.Math.Between(-20, 20);
+      const dy = Phaser.Math.Between(-20, 10);
+      const sr = size === 'large' ? Phaser.Math.Between(18, 32) : Phaser.Math.Between(10, 18);
+      const smoke = this.add.graphics();
+      smoke.fillStyle(0x555566, 0.3);
+      smoke.fillCircle(x + dx, y + dy, sr);
+      smoke.fillStyle(0x777788, 0.15);
+      smoke.fillCircle(x + dx + 5, y + dy - 5, sr * 0.7);
+      smoke.setDepth(depth - 2);
+      this.tweens.add({
+        targets: smoke,
+        alpha: 0,
+        scaleX: 2.2, scaleY: 2.2,
+        y: (smoke.y ?? 0) - 20,
+        duration: Phaser.Math.Between(500, 900),
+        delay: Phaser.Math.Between(0, 150),
+        ease: 'Sine.Out',
+        onComplete: () => smoke.destroy(),
+      });
+    }
   }
 
   // ─── ボム：柴犬カットイン ──────────────────────────
@@ -901,6 +1159,37 @@ export class GameScene extends Phaser.Scene {
     this.bossSpawned = true;
     this.spawner.destroyAll();
 
+    // 「STAGE BOSS」大テキスト
+    const stageBossText = this.add.text(
+      GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50,
+      'STAGE BOSS',
+      {
+        fontSize: '52px',
+        fontFamily: 'Arial Black, sans-serif',
+        color: '#ff0000',
+        stroke: '#440000',
+        strokeThickness: 8,
+      }
+    ).setOrigin(0.5).setAlpha(0).setDepth(96).setScale(0.2);
+
+    this.tweens.add({
+      targets: stageBossText,
+      alpha: 1, scaleX: 1, scaleY: 1,
+      duration: 300,
+      ease: 'Back.Out',
+    });
+    // 点滅後に消える
+    this.time.delayedCall(400, () => {
+      this.tweens.add({
+        targets: stageBossText,
+        alpha: 0,
+        duration: 200,
+        yoyo: true,
+        repeat: 5,
+        onComplete: () => stageBossText.destroy(),
+      });
+    });
+
     if (this.bossWarningText) {
       this.tweens.add({
         targets: this.bossWarningText,
@@ -917,7 +1206,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnBoss(): void {
-    this.boss = new Boss(this);
+    // ステージによってボスを切り替え
+    switch (this.stageNumber) {
+      case 2:
+        this.boss = new BossVacuum(this, BOSS_VACUUM_HP);
+        break;
+      case 3:
+        this.boss = new BossThunder(this, BOSS_THUNDER_HP);
+        break;
+      default:
+        this.boss = new Boss(this);
+        break;
+    }
+    // ボス名をHPバーに反映
+    const bossNames = ['シャンプーマシン', '高性能掃除機', '超雷神 — FINAL'];
+    this.bossHpBar.setName(bossNames[this.stageNumber - 1] ?? 'BOSS');
     this.bossHpBar.show();
     this.audio.stopBGM();
   }
@@ -958,7 +1261,20 @@ export class GameScene extends Phaser.Scene {
         this.boss?.destroy();
         this.cameras.main.flash(600, 255, 255, 255);
         this.time.delayedCall(700, () => {
-          this.scene.start('ClearScene', { score: this.player.score });
+          if (this.stageNumber >= 3) {
+            // ラスボス撃破 → 暗転してEndingScene
+            this.cameras.main.fade(800, 0, 0, 0, false, (_: unknown, progress: number) => {
+              if (progress === 1) this.scene.start('EndingScene', { score: this.player.score });
+            });
+          } else {
+            // Stage 1/2 クリア → ClearScene（スコア・ライフ引き継ぎ）
+            this.scene.start('ClearScene', {
+              stageNumber: this.stageNumber,
+              score: this.player.score,
+              lives: this.player.lives,
+              bombs: this.player.bombs,
+            });
+          }
         });
       });
     });

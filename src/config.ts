@@ -19,9 +19,16 @@ export const ENEMY_SCORE_MEDIUM = 250;
 export const ENEMY_SCORE_LARGE = 500;
 
 // ボス設定
-export const BOSS_HP = 200;
+export const BOSS_HP = 200;          // Stage 1 ボスHP
+export const BOSS_VACUUM_HP = 240;   // Stage 2 ボスHP
+export const BOSS_THUNDER_HP = 320;  // Stage 3 ボスHP
 export const BOSS_SCORE = 10000;
 export const BOSS_APPEAR_TIME = 60000; // 60秒後にボス出現
+
+// ── 全3ステージ設定 ───────────────────────────────────
+// index = stageNumber - 1
+export const STAGE_ENEMY_SPEED_MULT   = [1.0, 1.3, 1.65]; // 敵の移動速度倍率
+export const STAGE_ENEMY_BULLET_MULT  = [1.0, 1.25, 1.55]; // 敵の弾速倍率
 
 // 色設定
 export const COLOR_BG = 0x000011;

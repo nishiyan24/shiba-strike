@@ -9,6 +9,10 @@ export class Boss extends Phaser.GameObjects.Container {
   public bullets: Phaser.GameObjects.Group;
   public isDefeated: boolean = false;
 
+  // GameScene からフレームごとに更新される（プレイヤー強化状態）
+  // 1.0=通常, 1.5=3WAY, 2.0=SUPER SHIBA
+  public playerPowerMult: number = 1.0;
+
   private phase: number = 1;
   private moveDir: number = 1;
   private moveTimer: number = 0;
@@ -223,13 +227,29 @@ export class Boss extends Phaser.GameObjects.Container {
 
   // フェーズ1: 扇状水スプレー（左右ノズルから）
   private fireWaterSpray(): void {
-    const angles = this.phase === 1
-      ? [-35, -15, 0, 15, 35]
-      : [-50, -30, -15, 0, 15, 30, 50];
+    // playerPowerMult に応じてバレット数・角度を拡張
+    let angles: number[];
+    if (this.phase === 1) {
+      if (this.playerPowerMult >= 2.0) {
+        angles = [-55, -40, -25, -10, 0, 10, 25, 40, 55]; // SUPER: 9方向
+      } else if (this.playerPowerMult >= 1.5) {
+        angles = [-45, -25, -10, 0, 10, 25, 45]; // 3WAY: 7方向
+      } else {
+        angles = [-35, -15, 0, 15, 35]; // 通常: 5方向
+      }
+    } else {
+      if (this.playerPowerMult >= 2.0) {
+        angles = [-65, -50, -35, -20, -8, 0, 8, 20, 35, 50, 65]; // SUPER ph2: 11方向
+      } else if (this.playerPowerMult >= 1.5) {
+        angles = [-55, -38, -22, -8, 0, 8, 22, 38, 55]; // 3WAY ph2: 9方向
+      } else {
+        angles = [-50, -30, -15, 0, 15, 30, 50]; // 通常 ph2: 7方向
+      }
+    }
 
     angles.forEach(deg => {
       const rad = Phaser.Math.DegToRad(deg + 90);
-      const spd = ENEMY_BULLET_SPEED * 1.1;
+      const spd = ENEMY_BULLET_SPEED * 1.1 * Math.min(this.playerPowerMult, 1.6);
       const b = this.scene.add.graphics();
       // 水滴の形（縦長の楕円）
       b.fillStyle(0x44aaff, 0.9);
@@ -255,27 +275,41 @@ export class Boss extends Phaser.GameObjects.Container {
     const dx = player.x - this.x;
     const dy = player.y - this.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    const spd = ENEMY_BULLET_SPEED * 1.6;
+    const spd = ENEMY_BULLET_SPEED * 1.6 * Math.min(this.playerPowerMult, 1.7);
 
-    const b = this.scene.add.graphics();
-    // 高圧水流（細長い）
-    b.fillStyle(0x0088ff, 0.95);
-    b.fillEllipse(0, 0, 5, 14);
-    b.fillStyle(0x88ddff, 0.7);
-    b.fillEllipse(0, -2, 2, 7);
+    // SUPER時は3連バースト（±10度の扇）
+    const shotCount = this.playerPowerMult >= 2.0 ? 3 : this.playerPowerMult >= 1.5 ? 2 : 1;
+    const spreadDegs = this.playerPowerMult >= 2.0 ? [-10, 0, 10] : this.playerPowerMult >= 1.5 ? [-6, 6] : [0];
 
-    (b as any).x = this.x;
-    (b as any).y = this.y + 75;
-    (b as any).vx = (dx / len) * spd;
-    (b as any).vy = (dy / len) * spd;
-    (b as any).active = true;
-    this.bullets.add(b as any);
+    for (let si = 0; si < shotCount; si++) {
+      const spread = Phaser.Math.DegToRad(spreadDegs[si]);
+      const baseAngle = Math.atan2(dy, dx);
+      const angle = baseAngle + spread;
+
+      const b = this.scene.add.graphics();
+      // 高圧水流（細長い）
+      b.fillStyle(0x0088ff, 0.95);
+      b.fillEllipse(0, 0, 5, 14);
+      b.fillStyle(0x88ddff, 0.7);
+      b.fillEllipse(0, -2, 2, 7);
+
+      (b as any).x = this.x;
+      (b as any).y = this.y + 75;
+      (b as any).vx = Math.cos(angle) * spd;
+      (b as any).vy = Math.sin(angle) * spd;
+      (b as any).active = true;
+      this.bullets.add(b as any);
+    }
   }
 
   // フェーズ2: シャンプー泡の連発
   private fireBubbleSalvo(): void {
-    for (let i = 0; i < 4; i++) {
-      const xOffset = (i - 1.5) * 30;
+    // playerPowerMult に応じて泡の数と速度を増やす
+    const count = this.playerPowerMult >= 2.0 ? 7 : this.playerPowerMult >= 1.5 ? 5 : 4;
+    const spdMult = Math.min(this.playerPowerMult, 1.5);
+
+    for (let i = 0; i < count; i++) {
+      const xOffset = (i - (count - 1) / 2) * 30;
       const b = this.scene.add.graphics();
       const r = Phaser.Math.Between(7, 12);
       // 泡（虹色っぽく）
@@ -288,8 +322,8 @@ export class Boss extends Phaser.GameObjects.Container {
 
       (b as any).x = this.x + xOffset;
       (b as any).y = this.y + 75;
-      (b as any).vx = (Math.random() - 0.5) * 80;
-      (b as any).vy = ENEMY_BULLET_SPEED * 0.8;
+      (b as any).vx = (Math.random() - 0.5) * 80 * spdMult;
+      (b as any).vy = ENEMY_BULLET_SPEED * 0.8 * spdMult;
       (b as any).active = true;
       this.bullets.add(b as any);
     }

@@ -1,6 +1,14 @@
 import Phaser from 'phaser';
 import { ENEMY_BULLET_SPEED, GAME_WIDTH } from '../config';
 
+// ステージ別速度倍率（EnemySpawnerからセットされる）
+let _globalSpeedMult = 1.0;
+let _globalBulletMult = 1.0;
+export function setEnemyGlobalMult(speedMult: number, bulletMult: number): void {
+  _globalSpeedMult = speedMult;
+  _globalBulletMult = bulletMult;
+}
+
 export type EnemyType = 'straight' | 'zigzag' | 'formation';
 
 // Enemy: 犬の天敵たち
@@ -28,15 +36,15 @@ export class Enemy extends Phaser.GameObjects.Container {
 
     switch (type) {
       case 'straight':   // 黒猫
-        this.hp = 1; this.score = 100; this.speed = 130; this.shootInterval = 2800;
+        this.hp = 1; this.score = 100; this.speed = 130 * _globalSpeedMult; this.shootInterval = 2800;
         this.drawCat();
         break;
       case 'zigzag':     // ロボット掃除機
-        this.hp = 2; this.score = 250; this.speed = 100; this.shootInterval = 2200;
+        this.hp = 2; this.score = 250; this.speed = 100 * _globalSpeedMult; this.shootInterval = 2200;
         this.drawVacuum();
         break;
       case 'formation':  // かみなり雲
-        this.hp = 1; this.score = 150; this.speed = 150; this.shootInterval = 3200;
+        this.hp = 1; this.score = 150; this.speed = 150 * _globalSpeedMult; this.shootInterval = 3200;
         this.drawThunderCloud();
         break;
     }
@@ -268,7 +276,7 @@ export class Enemy extends Phaser.GameObjects.Container {
 
     (b as any).x = this.x;
     (b as any).y = this.y + 20;
-    (b as any).vy = ENEMY_BULLET_SPEED;
+    (b as any).vy = ENEMY_BULLET_SPEED * _globalBulletMult;
     (b as any).active = true;
     this.bullets.add(b as any);
   }
