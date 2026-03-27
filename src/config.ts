@@ -31,5 +31,21 @@ export const COLOR_ENEMY = 0xff4444;
 export const COLOR_BOSS = 0xff0088;
 export const COLOR_BOMB = 0x00ffff;
 
+// ── パワーアップ設定 ──────────────────────────────────
+// 骨アイテムを拾うと NORMAL → POWER_3WAY に昇格
+export const POWERUP_SHOOT_INTERVAL = 85;      // パワーアップ時の連射間隔(ms)
+export const SUPER_MODE_SHOOT_INTERVAL = 65;   // スーパーモード時
+export const SUPER_MODE_SPEED_MULT = 1.5;      // スーパーモード時の速度倍率
+
+// ── ステージ別スコア倍率 ─────────────────────────────
+export const SCORE_MULT_STAGE0 = 1;   // 普通の宇宙
+export const SCORE_MULT_STAGE1 = 2;   // おやつ銀河（×2）
+export const SCORE_MULT_STAGE2 = 3;   // 伝説のドッグラン・スーパーモード（×3）
+
+// ── アイテムドロップ率 ───────────────────────────────
+export const DROP_RATE_STAGE0 = 0.0;   // ドロップなし
+export const DROP_RATE_STAGE1 = 0.38;  // おやつ銀河：38%
+export const DROP_RATE_STAGE2 = 0.58;  // ドッグラン：58%
+
 // LocalStorageキー
 export const STORAGE_KEY_HIGHSCORE = 'shibaStrike_highScore';

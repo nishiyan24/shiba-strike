@@ -121,16 +121,54 @@ export class AudioManager {
     this.beep(440, 0.08, 'sawtooth', 0.1);
   }
 
-  // シンプルなSF系BGM（ループ）
+  // 骨アイテム取得音（上昇アルペジオ）
+  playPowerup(): void {
+    if (!this.audioCtx || this.muted) return;
+    const notes = [523, 659, 784, 1047]; // C5→E5→G5→C6
+    notes.forEach((freq, i) => {
+      this.scene.time.delayedCall(i * 60, () => {
+        this.beep(freq, 0.12, 'triangle', 0.18);
+      });
+    });
+  }
+
+  // スーパーモード突入音（派手なファンファーレ）
+  playSuperMode(): void {
+    if (!this.audioCtx || this.muted) return;
+    // 上昇するトリル
+    const fanfare = [392, 523, 659, 784, 1047, 784, 1047];
+    fanfare.forEach((freq, i) => {
+      this.scene.time.delayedCall(i * 80, () => {
+        this.beep(freq, 0.15, 'square', 0.14);
+      });
+    });
+  }
+
+  // 通常BGM（シンプルなSF系ループ）
   startBGM(): void {
     if (!this.audioCtx || this.muted) return;
-    // 後でより本格的なBGMに置き換え可能
     const notes = [220, 247, 262, 294, 330, 294, 262, 247];
     let idx = 0;
     this.bgmInterval = setInterval(() => {
-      this.beep(notes[idx % notes.length], 0.35, 'triangle', 0.05);
+      this.beep(notes[idx % notes.length], 0.32, 'triangle', 0.05);
       idx++;
     }, 350);
+  }
+
+  // スーパーモード用アップテンポBGM
+  startFastBGM(): void {
+    this.stopBGM();
+    if (!this.audioCtx || this.muted) return;
+    // 短い音符を高速で + ベースライン
+    const melody = [784, 880, 1047, 880, 784, 659, 784, 880];
+    const bass   = [196, 196, 220, 220, 247, 247, 196, 196];
+    let idx = 0;
+    this.bgmInterval = setInterval(() => {
+      const i = idx % melody.length;
+      this.beep(melody[i], 0.16, 'square', 0.07);
+      this.beep(bass[i],   0.28, 'triangle', 0.04);
+      idx++;
+    }, 170); // 通常の約2倍速
   }
 
   stopBGM(): void {
